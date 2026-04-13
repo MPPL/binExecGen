@@ -51,12 +51,6 @@ class StaticBytes:
     
     def as_addr64(self) -> Addr64:
         return Addr64(self.data)
-    
-    def as_vaddr64(self) -> vAddr64:
-        return vAddr64(Addr64(self.data))
-    
-    def as_paddr64(self) -> pAddr64:
-        return pAddr64(Addr64(self.data))
 
     def force_little(self) -> None:
         self.data = bytes(reversed(self.data.lstrip(b'\x00'))) + bytes(self.lenght - len(self.data.lstrip(b'\x00')))
@@ -67,22 +61,27 @@ class StaticBytes:
 class Addr64:
     addr: StaticBytes
 
-    def __init__(self, addr: bytes) -> None:
-        self.addr = StaticBytes(8)
-        self.addr(addr)
+    def __init__(self, addr: bytes | StaticBytes) -> None:
+        if isinstance(addr, bytes):
+            self.addr = StaticBytes(8)
+            self.addr(addr)
+        elif isinstance(addr, StaticBytes):
+            if addr.lenght != 8:
+                raise ValueError(f"Lenght of addr in Addr64 contstructor is wrong, should be 8 bytes")
+            self.addr = addr
+        else:
+            raise TypeError("Wrong type of data provided to Addr64 constructor")
 
 @dataclass
 class Addr32:
-    addr: StaticBytes = StaticBytes(4)
 
     def __init__(self, addr: bytes) -> None:
-        self.addr(addr)
-
-@dataclass
-class vAddr64:
-    addr: Addr64
-
-@dataclass
-class pAddr64:
-    addr: Addr64
-
+        if isinstance(addr, bytes):
+            self.addr = StaticBytes(4)
+            self.addr(addr)
+        elif isinstance(addr, StaticBytes):
+            if addr.lenght != 4:
+                raise ValueError(f"Lenght of addr in Addr32 contstructor is wrong, should be 4 bytes")
+            self.addr = addr
+        else:
+            raise TypeError("Wrong type of data provided to Addr32 constructor")

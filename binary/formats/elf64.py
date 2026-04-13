@@ -1,7 +1,9 @@
-from structs.binary import Addr64, vAddr64, pAddr64, StaticBytes
+from structs.binary import Addr64, StaticBytes
 from dataclasses import dataclass
 from typing import Literal
 from enum import Enum, IntFlag
+from math import ceil
+from structs.files import ExecFile
 
 ELF_IDENT: bytes = b'\x7F\x45\x4C\x46'
 class ENUM_ELF_BYTES(Enum):
@@ -93,6 +95,9 @@ ELF_SH_TABLE_ENTRY_SIZE:bytes = b'\x00\x40'
 ELF_SH_TABLE_ENTRIES:   bytes = b'\x00\x00'
 ELF_SH_TABLE_NAMES:     bytes = b'\x00\x00'
 
+STANDARD_PAGE_SIZE:       int = 4096
+STANDARD_VIRTUAL_OFFSET:  int = 4194304
+
 class ELF_PH_TYPE(Enum):
     PT_NULL     = b'\x00\x00\x00\x00\x00\x00\x00\x00'
     PT_LOAD     = b'\x00\x00\x00\x00\x00\x00\x00\x01'
@@ -126,9 +131,9 @@ class ELF64_HEADER:
     OBJECT_TYPE:    StaticBytes = StaticBytes(2)
     MACHINE:        StaticBytes = StaticBytes(2)
     VERSION2:       StaticBytes = StaticBytes(4, ELF_2ND_VERSION_BYTE)
-    ENTRY_POINT:    vAddr64     = vAddr64(Addr64(bytes(8)))
-    PH_TABLE:       vAddr64     = vAddr64(Addr64(ELF_PH_TABLE_64))
-    SH_TABLE:       vAddr64     = StaticBytes(8).as_vaddr64()
+    ENTRY_POINT:    Addr64      = Addr64(bytes(8))
+    PH_TABLE:       Addr64      = Addr64(ELF_PH_TABLE_64)
+    SH_TABLE:       Addr64      = StaticBytes(8).as_addr64()
     FLAGS:          StaticBytes = StaticBytes(4)
     H_SIZE:         StaticBytes = StaticBytes(2, ELF_HEADER_SIZE_64)
     PH_SIZE:        StaticBytes = StaticBytes(2, ELF_PH_TABLE_ENTRY_SIZE)
@@ -158,7 +163,7 @@ class ELF64_HEADER:
     def partial_fill(self,
                      ENDIANESS: ENUM_ELF_ENDIAN,
                      MACHINE: ENUM_ELF_ARCH,
-                     ENTRY_POINT: vAddr64,
+                     ENTRY_POINT: Addr64,
                      FLAGS: StaticBytes,
                      PH_NUM: int,
                      SH_NUM: int,
@@ -179,9 +184,9 @@ class ELF64_HEADER:
             self.MACHINE = StaticBytes(2, MACHINE.value, True)
             self.VERSION2.force_little()
             self.ENTRY_POINT = ENTRY_POINT
-            self.ENTRY_POINT.addr.addr.force_little()
-            self.PH_TABLE.addr.addr.force_little()
-            self.SH_TABLE.addr.addr.force_little()
+            self.ENTRY_POINT.addr.force_little()
+            self.PH_TABLE.addr.force_little()
+            self.SH_TABLE.addr.force_little()
             self.FLAGS(FLAGS)
             self.FLAGS.force_little()
             self.H_SIZE.force_little()
@@ -207,9 +212,9 @@ class ELF64_HEADER:
         ret[16:18] = self.OBJECT_TYPE.data
         ret[18:20] = self.MACHINE.data
         ret[20:24] = self.VERSION2.data
-        ret[24:32] = self.ENTRY_POINT.addr.addr.data
-        ret[32:40] = self.PH_TABLE.addr.addr.data
-        ret[40:48] = self.SH_TABLE.addr.addr.data
+        ret[24:32] = self.ENTRY_POINT.addr.data
+        ret[32:40] = self.PH_TABLE.addr.data
+        ret[40:48] = self.SH_TABLE.addr.data
         ret[48:52] = self.FLAGS.data
         ret[52:54] = self.H_SIZE.data
         ret[54:56] = self.PH_SIZE.data
@@ -229,8 +234,8 @@ class PH_ENTRY:
     TYPE:           StaticBytes = StaticBytes(4)
     FLAGS:          StaticBytes = StaticBytes(4)
     OFFSET:         Addr64      = Addr64(bytes(8))
-    VADDR:          vAddr64     = vAddr64(Addr64(bytes(8)))
-    PADDR:          pAddr64     = pAddr64(Addr64(bytes(8)))
+    VADDR:          Addr64      = Addr64(bytes(8))
+    PADDR:          Addr64      = Addr64(bytes(8))
     FILESIZE:       StaticBytes = StaticBytes(8)
     MEMSIZE:        StaticBytes = StaticBytes(8)
     ALIGN:          StaticBytes = StaticBytes(8)
@@ -242,8 +247,8 @@ class PH_ENTRY:
         ret[0:4] = self.TYPE.data
         ret[4:8] = self.FLAGS.data
         ret[8:16] = self.OFFSET.addr.data
-        ret[16:24] = self.VADDR.addr.addr.data
-        ret[24:32] = self.PADDR.addr.addr.data
+        ret[16:24] = self.VADDR.addr.data
+        ret[24:32] = self.PADDR.addr.data
         ret[32:40] = self.FILESIZE.data
         ret[40:48] = self.MEMSIZE.data
         ret[48:56] = self.ALIGN.data
@@ -255,15 +260,15 @@ class PH_ENTRY:
         return 56
 
     def full_fill(self,
-                  type: ELF_PH_TYPE,
-                  flags: ELF_PH_FLAGS,
-                  offset: StaticBytes,
-                  vaddr: vAddr64,
-                  paddr: pAddr64,
-                  filesize: StaticBytes,
-                  memsize: StaticBytes,
-                  align: StaticBytes,
-                  to_little: bool = False) -> None:
+                  type:         ELF_PH_TYPE,
+                  flags:        ELF_PH_FLAGS,
+                  offset:       StaticBytes,
+                  vaddr:        Addr64,
+                  paddr:        Addr64,
+                  filesize:     StaticBytes,
+                  memsize:      StaticBytes,
+                  align:        StaticBytes,
+                  to_little:    bool = False) -> None:
         if not to_little:
             self.TYPE        = StaticBytes(4,type.value)
             self.FLAGS       = StaticBytes(4,flags.to_bytes(4, 'big'))
@@ -279,9 +284,9 @@ class PH_ENTRY:
             self.OFFSET      = offset.as_addr64()
             self.OFFSET.addr.force_little()
             self.VADDR       = vaddr
-            self.VADDR.addr.addr.force_little()
+            self.VADDR.addr.force_little()
             self.PADDR       = paddr
-            self.PADDR.addr.addr.force_little()
+            self.PADDR.addr.force_little()
             self.FILESIZE    = filesize
             self.FILESIZE.force_little()
             self.MEMSIZE     = memsize
@@ -294,7 +299,7 @@ class SH_ENTRY:
     NAME:           StaticBytes = StaticBytes(4)
     TYPE:           StaticBytes = StaticBytes(4)
     FLAGS:          StaticBytes = StaticBytes(8)
-    VADDR:          vAddr64     = vAddr64(Addr64(bytes(8)))
+    VADDR:          Addr64      = Addr64(bytes(8))
     OFFSET:         StaticBytes = StaticBytes(8)
     SIZE:           StaticBytes = StaticBytes(8)
     LINK:           StaticBytes = StaticBytes(4)
@@ -306,26 +311,22 @@ class SH_ENTRY:
         
         ret: bytearray = bytearray(60)
 
-        ret[0:4] = self.NAME.data
-        ret[4:8] = self.TYPE.data
-        ret[8:16] = self.FLAGS.data
-        ret[16:24] = self.VADDR.addr.addr.data
-        ret[24:32] = self.OFFSET.data
-        ret[32:40] = self.SIZE.data
-        ret[40:44] = self.LINK.data
-        ret[44:48] = self.INFO.data
-        ret[48:56] = self.ADDRALIGN.data
-        ret[56:64] = self.ENTRYSIZE.data
+        ret[0:4]    = self.NAME.data
+        ret[4:8]    = self.TYPE.data
+        ret[8:16]   = self.FLAGS.data
+        ret[16:24]  = self.VADDR.addr.data
+        ret[24:32]  = self.OFFSET.data
+        ret[32:40]  = self.SIZE.data
+        ret[40:44]  = self.LINK.data
+        ret[44:48]  = self.INFO.data
+        ret[48:56]  = self.ADDRALIGN.data
+        ret[56:64]  = self.ENTRYSIZE.data
 
         return bytes(ret)
 
     @classmethod
     def sizeof(cls) -> int:
         return 64
-
-
-def entry_point_addr() -> Addr64:
-    return Addr64(bytes(8))
 
 from math import ceil
 
@@ -343,68 +344,153 @@ class HeaderStructure:
     def as_bytes(self) -> bytes:
         return bytes(self.data)
 
-def gen_file_begin(ph_entries: int, sh_entries: int, align: int) -> HeaderStructure:
+def get_header_size(ph_entries: int, sh_entries: int) -> int:
+    return (ELF64_HEADER.sizeof() + PH_ENTRY.sizeof() * ph_entries + SH_ENTRY.sizeof() * sh_entries)
 
-    ehsz: int = ELF64_HEADER.sizeof()
+def get_data_offset(header_size: int, header_align: int = STANDARD_PAGE_SIZE) -> int:
+    return ceil(header_size / header_align) * header_align
+
+def gen_ph_entry(type: ELF_PH_TYPE,
+                 flags: ELF_PH_FLAGS,
+                 offset: int,
+                 virtual_offset: int,
+                 physical_offset: int,
+                 filesize: int,
+                 memsize: int,
+                 alignment: int,
+                 little_endianness: bool = False) -> PH_ENTRY:
+    ret: PH_ENTRY = PH_ENTRY()
+    ret.full_fill(type,
+                  flags,
+                  StaticBytes(8,offset.to_bytes(8)),
+                  Addr64(StaticBytes(8,virtual_offset.to_bytes(8))),
+                  Addr64(StaticBytes(8,physical_offset.to_bytes(8))),
+                  StaticBytes(8,filesize.to_bytes(8)),
+                  StaticBytes(8,memsize.to_bytes(8)),
+                  StaticBytes(8,alignment.to_bytes(8)),
+                  True)
+    return ret
+
+# def gen_file_begin(ph_entries: list[PH_ENTRY], sh_entries: list[SH_ENTRY], align: int) -> HeaderStructure:
+
+#     ehsz: int = ELF64_HEADER.sizeof()
+#     phsz: int = PH_ENTRY.sizeof()
+#     shsz: int = SH_ENTRY.sizeof()
+
+#     header_bytes: bytearray = bytearray(ehsz + phsz * len(ph_entries) + shsz * len(sh_entries))
+#     header_size = ceil(len(header_bytes) / STANDARD_PAGE_SIZE) * STANDARD_PAGE_SIZE
+
+#     ehobj: ELF64_HEADER = ELF64_HEADER()
+
+#     # Look good, should work
+
+#     phobjs: list[PH_ENTRY] = []
+
+#     phobjs[0].full_fill(ELF_PH_TYPE.PT_LOAD,
+#                         ELF_PH_FLAGS.EXEC | ELF_PH_FLAGS.READ,
+#                         StaticBytes(8,(len(ret)).to_bytes(8,'big')),
+#                         Addr64((int.from_bytes(ELF_DEFAULT_VIRTUAL_START) + len(ret)).to_bytes(8, 'big')),
+#                         StaticBytes(8).as_addr64(),
+#                         StaticBytes(8),
+#                         StaticBytes(8),
+#                         StaticBytes(8, int(align).to_bytes(8,'big')),
+#                         True)
+    
+#     exec_size = 0
+
+#     phobjs[1].full_fill(ELF_PH_TYPE.PT_LOAD,
+#                         ELF_PH_FLAGS.WRIT | ELF_PH_FLAGS.READ,
+#                         StaticBytes(8,(len(ret)+exec_size).to_bytes(8,'big')),
+#                         vAddr64(Addr64((int.from_bytes(ELF_DEFAULT_VIRTUAL_START) + len(ret)+exec_size).to_bytes(8, 'big'))),
+#                         StaticBytes(8).as_paddr64(),
+#                         StaticBytes(8),
+#                         StaticBytes(8),
+#                         StaticBytes(8, int(align).to_bytes(8,'big')),
+#                         True)
+    
+
+#     ehobj.partial_fill(ENUM_ELF_ENDIAN.ELF_LITTLE_ENDIAN,
+#                        ENUM_ELF_ARCH.ELF_ARCH_x86_64,
+#                        vAddr64(Addr64((int.from_bytes(ELF_DEFAULT_VIRTUAL_START) + len(ret)).to_bytes(8, 'big'))),
+#                        StaticBytes(4),
+#                        ph_entries+2,
+#                        sh_entries,
+#                        StaticBytes(2))
+
+#     phobjs += [PH_ENTRY() for x in range(ph_entries)]
+
+#     shobjs: list[SH_ENTRY] = []
+#     shobjs += [SH_ENTRY() for x in range(sh_entries)]
+
+#     shobjs_offset: int = ehsz+phsz*(ph_entries+2)
+
+#     ret[0:ehsz] = ehobj.to_bytes()
+#     for x, phobj in enumerate(phobjs):
+#         ret[ehsz + (x*phsz):ehsz + ((x+1)*phsz)] = phobj.to_bytes()
+#         print(phsz, len(phobj.to_bytes()))
+#         assert len(phobj.to_bytes()) == phsz, f"ASSERT: phsz {phsz} is different size than actual bytes output of phobj {len(phobj.to_bytes())}"
+#         assert phobj.to_bytes() == ret[ehsz + (x*phsz):ehsz + ((x+1)*phsz)], f"wrong write to ret"
+#         #print(phobj.to_bytes(), len(phobj.to_bytes()))
+#     print(ret[ehsz:ehsz+phsz])
+#     print(ret[ehsz+phsz:ehsz+phsz*2])
+#     for x, shobj in enumerate(shobjs):
+#         ret[shobjs_offset + (x*shsz):shobjs_offset + ((x+1)*shsz)] = shobj.to_bytes()
+
+#     return HeaderStructure(ret, [ehsz+(x*phsz) for x in range(ph_entries)], [shobjs_offset+(y*shsz) for y in range(sh_entries)])
+
+def fit_in_align(val: int, align: int) -> int:
+    return ceil(val / align) * align
+
+def gen_test_header(exec_size: int, rw_data_size: int) -> HeaderStructure:
+
+    hdsz: int = ELF64_HEADER.sizeof()
     phsz: int = PH_ENTRY.sizeof()
     shsz: int = SH_ENTRY.sizeof()
 
-    ret: bytearray = bytearray(ehsz + phsz * (ph_entries+2) + shsz * sh_entries)
+    ret_data: bytearray = bytearray(get_header_size(2, 0))
 
-    ehobj: ELF64_HEADER = ELF64_HEADER()
+    ph_exec: PH_ENTRY = gen_ph_entry(
+        ELF_PH_TYPE.PT_LOAD,
+        ELF_PH_FLAGS.READ | ELF_PH_FLAGS.EXEC,
+        get_data_offset(len(ret_data)),
+        STANDARD_VIRTUAL_OFFSET,
+        0,
+        exec_size,
+        fit_in_align(exec_size, STANDARD_PAGE_SIZE),
+        16,
+        True)
 
-    # Look good, should work
+    ph_data: PH_ENTRY = gen_ph_entry(
+        ELF_PH_TYPE.PT_LOAD,
+        ELF_PH_FLAGS.READ | ELF_PH_FLAGS.WRIT,
+        get_data_offset(len(ret_data)) + fit_in_align(exec_size, STANDARD_PAGE_SIZE),
+        STANDARD_VIRTUAL_OFFSET + fit_in_align(exec_size, STANDARD_PAGE_SIZE),
+        0,
+        rw_data_size,
+        fit_in_align(rw_data_size, STANDARD_PAGE_SIZE),
+        16,
+        True)
 
-    phobjs: list[PH_ENTRY] = [PH_ENTRY(), PH_ENTRY()]
-
-    phobjs[0].full_fill(ELF_PH_TYPE.PT_LOAD,
-                        ELF_PH_FLAGS.EXEC | ELF_PH_FLAGS.READ,
-                        StaticBytes(8,(len(ret)).to_bytes(8,'big')),
-                        vAddr64(Addr64((int.from_bytes(ELF_DEFAULT_VIRTUAL_START) + len(ret)).to_bytes(8, 'big'))),
-                        StaticBytes(8).as_paddr64(),
-                        StaticBytes(8),
-                        StaticBytes(8),
-                        StaticBytes(8, int(align).to_bytes(8,'big')),
-                        True)
+    ident_header: ELF64_HEADER = ELF64_HEADER()
+    ident_header.partial_fill(ENUM_ELF_ENDIAN.ELF_LITTLE_ENDIAN,
+                              ENUM_ELF_ARCH.ELF_ARCH_DEFAULT,
+                              Addr64(StaticBytes(8,get_data_offset(len(ret_data)).to_bytes(8),True)),
+                              StaticBytes(4),
+                              2,
+                              0,
+                              StaticBytes(2))
     
-    exec_size = 0
+    ret_data[0:hdsz] = ident_header.to_bytes()
+    ret_data[hdsz:hdsz + phsz] = ph_exec.to_bytes()
+    ret_data[hdsz + phsz:hdsz + phsz*2] = ph_data.to_bytes()
 
-    phobjs[1].full_fill(ELF_PH_TYPE.PT_LOAD,
-                        ELF_PH_FLAGS.WRIT | ELF_PH_FLAGS.READ,
-                        StaticBytes(8,(len(ret)+exec_size).to_bytes(8,'big')),
-                        vAddr64(Addr64((int.from_bytes(ELF_DEFAULT_VIRTUAL_START) + len(ret)+exec_size).to_bytes(8, 'big'))),
-                        StaticBytes(8).as_paddr64(),
-                        StaticBytes(8),
-                        StaticBytes(8),
-                        StaticBytes(8, int(align).to_bytes(8,'big')),
-                        True)
-    
+    return HeaderStructure(ret_data, [get_data_offset(len(ret_data)),get_data_offset(len(ret_data))], [])
 
-    ehobj.partial_fill(ENUM_ELF_ENDIAN.ELF_LITTLE_ENDIAN,
-                       ENUM_ELF_ARCH.ELF_ARCH_x86_64,
-                       vAddr64(Addr64((int.from_bytes(ELF_DEFAULT_VIRTUAL_START) + len(ret)).to_bytes(8, 'big'))),
-                       StaticBytes(4),
-                       ph_entries+2,
-                       sh_entries,
-                       StaticBytes(2))
+def gen_test_file() -> ExecFile:
 
-    phobjs += [PH_ENTRY() for x in range(ph_entries)]
+    exec_bytes: bytes = bytes(12345)
+    rw_bytes: bytes = bytes(10000)
 
-    shobjs: list[SH_ENTRY] = []
-    shobjs += [SH_ENTRY() for x in range(sh_entries)]
+    header: HeaderStructure = gen_test_header(len(exec_bytes), len(rw_bytes))
 
-    shobjs_offset: int = ehsz+phsz*(ph_entries+2)
-
-    ret[0:ehsz] = ehobj.to_bytes()
-    for x, phobj in enumerate(phobjs):
-        ret[ehsz + (x*phsz):ehsz + ((x+1)*phsz)] = phobj.to_bytes()
-        print(phsz, len(phobj.to_bytes()))
-        assert len(phobj.to_bytes()) == phsz, f"ASSERT: phsz {phsz} is different size than actual bytes output of phobj {len(phobj.to_bytes())}"
-        assert phobj.to_bytes() == ret[ehsz + (x*phsz):ehsz + ((x+1)*phsz)], f"wrong write to ret"
-        #print(phobj.to_bytes(), len(phobj.to_bytes()))
-    print(ret[ehsz:ehsz+phsz])
-    print(ret[ehsz+phsz:ehsz+phsz*2])
-    for x, shobj in enumerate(shobjs):
-        ret[shobjs_offset + (x*shsz):shobjs_offset + ((x+1)*shsz)] = shobj.to_bytes()
-
-    return HeaderStructure(ret, [ehsz+(x*phsz) for x in range(ph_entries)], [shobjs_offset+(y*shsz) for y in range(sh_entries)])
+    return ExecFile(header.as_bytes(), exec_bytes, rw_bytes)
