@@ -1,0 +1,7 @@
+.main
+.main.asm
+.main.c
+.main.obj
+.mtest
+.testing.py
+*/__pycache__
