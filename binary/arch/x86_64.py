@@ -5,10 +5,10 @@ class REG(IntEnum):
     RCX = 1
     RDX = 2
     RBX = 3
-    RSI = 4
-    RDI = 5
-    RBP = 6
-    RSP = 7
+    RBP = 4
+    RSP = 5
+    RSI = 6
+    RDI = 7
     R8  = 8
     R9  = 9
     R10 = 10
@@ -50,9 +50,15 @@ def gen_rex(is_64: bit = bit(0), Modmrm: bit = bit(0), Sibindex: bit = bit(0), S
     return (4 * 0x10 + int(is_64) * 0x08 + int(Modmrm) * 0x04 + int(Sibindex) * 0x02 + int(Sibbase) * 0x01).to_bytes(1)
 
 def mov_r32_imm32(reg: REG, val: int) -> bytes:
-    return b''
+    return gen_rex(bit(1), bit(0), bit(0), bit(0)) + b'\xC7' + (192 + int(reg)).to_bytes(1) + val.to_bytes(4, 'little')
 
 def mov_r64_imm64(reg: REG, val: int) -> bytes:
     if int(reg) > 7:
         raise ValueError(f"reg value |{reg}| outside of range |0-7|")
     return gen_rex(bit(1), bit(0), bit(0), bit(0)) + (184 + int(reg)).to_bytes(1) + val.to_bytes(8, 'little')
+
+def syscall() -> bytes:
+    return b'\x0F\x05'
+
+def linux_exit() -> bytes:
+    return mov_r32_imm32(REG.RDI, 0) + mov_r32_imm32(REG.RAX, 0x3C) + syscall()

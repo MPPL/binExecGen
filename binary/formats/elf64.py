@@ -35,7 +35,7 @@ class ENUM_ELF_ABI(Enum):
     ELF_ABI_FENIXOS      = b'\x10'
     ELF_ABI_NUXI         = b'\x11'
     ELF_ABI_OPENVOS      = b'\x12'
-    ELF_ABI_DEFAULT      = ELF_ABI_LINUX
+    ELF_ABI_DEFAULT      = ELF_ABI_SYSTEMV
 
 ELF_ABI_VERSION_LINUX:  bytes = b'\x00'
 ELF_ABI_PADDING:        bytes = b'\x00\x00\x00\x00\x00\x00\x00'
@@ -285,6 +285,7 @@ class PH_ENTRY:
             self.OFFSET.addr.force_little()
             self.VADDR       = vaddr
             self.VADDR.addr.force_little()
+            print(self.VADDR.addr.data)
             self.PADDR       = paddr
             self.PADDR.addr.force_little()
             self.FILESIZE    = filesize
@@ -452,12 +453,13 @@ def gen_test_header(exec_size: int, rw_data_size: int) -> HeaderStructure:
     ph_exec: PH_ENTRY = gen_ph_entry(
         ELF_PH_TYPE.PT_LOAD,
         ELF_PH_FLAGS.READ | ELF_PH_FLAGS.EXEC,
-        get_data_offset(len(ret_data)),
+        #get_data_offset(len(ret_data)),
+        0,
         STANDARD_VIRTUAL_OFFSET,
         0,
         exec_size,
         fit_in_align(exec_size, STANDARD_PAGE_SIZE),
-        16,
+        STANDARD_PAGE_SIZE,
         True)
 
     ph_data: PH_ENTRY = gen_ph_entry(
@@ -468,13 +470,13 @@ def gen_test_header(exec_size: int, rw_data_size: int) -> HeaderStructure:
         0,
         rw_data_size,
         fit_in_align(rw_data_size, STANDARD_PAGE_SIZE),
-        16,
+        STANDARD_PAGE_SIZE,
         True)
 
     ident_header: ELF64_HEADER = ELF64_HEADER()
     ident_header.partial_fill(ENUM_ELF_ENDIAN.ELF_LITTLE_ENDIAN,
                               ENUM_ELF_ARCH.ELF_ARCH_DEFAULT,
-                              Addr64(StaticBytes(8,get_data_offset(len(ret_data)).to_bytes(8),True)),
+                              Addr64(StaticBytes(8,(STANDARD_VIRTUAL_OFFSET + STANDARD_PAGE_SIZE).to_bytes(8))),
                               StaticBytes(4),
                               2,
                               0,
@@ -488,9 +490,12 @@ def gen_test_header(exec_size: int, rw_data_size: int) -> HeaderStructure:
 
 def gen_test_file() -> ExecFile:
 
-    exec_bytes: bytes = bytes(12345)
-    rw_bytes: bytes = bytes(10000)
+    exec_bytes: bytes = bytes(fit_in_align(12345,STANDARD_PAGE_SIZE))
+    rw_bytes: bytes = bytes(fit_in_align(10000,STANDARD_PAGE_SIZE))
 
     header: HeaderStructure = gen_test_header(len(exec_bytes), len(rw_bytes))
 
-    return ExecFile(header.as_bytes(), exec_bytes, rw_bytes)
+    ret: ExecFile = ExecFile(header.as_bytes() + bytes(get_data_offset(len(header.as_bytes())) - len(header.as_bytes())), exec_bytes, rw_bytes)
+    ret.set_exec_start(len(header.as_bytes() + bytes(get_data_offset(len(header.as_bytes())) - len(header.as_bytes()))))
+
+    return ret
