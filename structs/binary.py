@@ -51,6 +51,9 @@ class StaticBytes:
     
     def as_addr64(self) -> Addr64:
         return Addr64(self.data)
+    
+    def as_int(self, is_little: bool = False) -> int:
+        return int.from_bytes(self.data, 'little' if is_little else 'big')
 
     def force_little(self) -> None:
         self.data = bytes(reversed(self.data.lstrip(b'\x00'))) + bytes(self.lenght - len(self.data.lstrip(b'\x00')))

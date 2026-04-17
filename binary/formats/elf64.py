@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Literal
 from enum import Enum, IntFlag
 from math import ceil
-from structs.files import ExecFile
+from structs.files import ExecFile, Header, DotCode, DotData, nice_hex
 
 ELF_IDENT: bytes = b'\x7F\x45\x4C\x46'
 class ENUM_ELF_BYTES(Enum):
@@ -285,7 +285,6 @@ class PH_ENTRY:
             self.OFFSET.addr.force_little()
             self.VADDR       = vaddr
             self.VADDR.addr.force_little()
-            print(self.VADDR.addr.data)
             self.PADDR       = paddr
             self.PADDR.addr.force_little()
             self.FILESIZE    = filesize
@@ -294,7 +293,6 @@ class PH_ENTRY:
             self.MEMSIZE.force_little()
             self.ALIGN       = align
             self.ALIGN.force_little()
-            print(self.ALIGN.data)
 
 class SH_ENTRY:
     NAME:           StaticBytes = StaticBytes(4)
@@ -335,6 +333,7 @@ from math import ceil
 class HeaderStructure:
     data: bytearray
     ph_offsets: list[int]
+    ph_vaddr: list[Addr64]
     sh_offsets: list[int]
 
     def __str__(self) -> str:
@@ -457,8 +456,8 @@ def gen_test_header(exec_size: int, rw_data_size: int) -> HeaderStructure:
         0,
         STANDARD_VIRTUAL_OFFSET,
         0,
-        exec_size,
-        fit_in_align(exec_size, STANDARD_PAGE_SIZE),
+        exec_size + STANDARD_PAGE_SIZE,
+        fit_in_align(exec_size + STANDARD_PAGE_SIZE, STANDARD_PAGE_SIZE),
         STANDARD_PAGE_SIZE,
         True)
 
@@ -466,7 +465,7 @@ def gen_test_header(exec_size: int, rw_data_size: int) -> HeaderStructure:
         ELF_PH_TYPE.PT_LOAD,
         ELF_PH_FLAGS.READ | ELF_PH_FLAGS.WRIT,
         get_data_offset(len(ret_data)) + fit_in_align(exec_size, STANDARD_PAGE_SIZE),
-        STANDARD_VIRTUAL_OFFSET + fit_in_align(exec_size, STANDARD_PAGE_SIZE),
+        STANDARD_VIRTUAL_OFFSET + fit_in_align(exec_size + STANDARD_PAGE_SIZE, STANDARD_PAGE_SIZE),
         0,
         rw_data_size,
         fit_in_align(rw_data_size, STANDARD_PAGE_SIZE),
@@ -486,16 +485,18 @@ def gen_test_header(exec_size: int, rw_data_size: int) -> HeaderStructure:
     ret_data[hdsz:hdsz + phsz] = ph_exec.to_bytes()
     ret_data[hdsz + phsz:hdsz + phsz*2] = ph_data.to_bytes()
 
-    return HeaderStructure(ret_data, [get_data_offset(len(ret_data)),get_data_offset(len(ret_data))], [])
+    #print(nice_hex(ph_data.VADDR.addr.data))
+
+    return HeaderStructure(ret_data, [get_data_offset(len(ret_data)),get_data_offset(len(ret_data))], [ph_exec.VADDR, ph_data.VADDR] ,[])
 
 def gen_test_file() -> ExecFile:
 
-    exec_bytes: bytes = bytes(fit_in_align(12345,STANDARD_PAGE_SIZE))
-    rw_bytes: bytes = bytes(fit_in_align(10000,STANDARD_PAGE_SIZE))
+    exec_bytes: int = fit_in_align(12345,STANDARD_PAGE_SIZE)
+    rw_bytes: int = fit_in_align(10000,STANDARD_PAGE_SIZE)
 
-    header: HeaderStructure = gen_test_header(len(exec_bytes), len(rw_bytes))
+    header: HeaderStructure = gen_test_header(exec_bytes, rw_bytes)
 
-    ret: ExecFile = ExecFile(header.as_bytes() + bytes(get_data_offset(len(header.as_bytes())) - len(header.as_bytes())), exec_bytes, rw_bytes)
-    ret.set_exec_start(len(header.as_bytes() + bytes(get_data_offset(len(header.as_bytes())) - len(header.as_bytes()))))
+    hdend: int = STANDARD_PAGE_SIZE
+    exend: int = hdend + exec_bytes
 
-    return ret
+    return ExecFile(Header(header.as_bytes() + bytes(STANDARD_PAGE_SIZE - len(header.as_bytes()))), DotCode(exec_bytes, hdend, header.ph_vaddr[0]), DotData(rw_bytes, exend, header.ph_vaddr[1]))

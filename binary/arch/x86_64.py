@@ -60,5 +60,8 @@ def mov_r64_imm64(reg: REG, val: int) -> bytes:
 def syscall() -> bytes:
     return b'\x0F\x05'
 
-def linux_exit() -> bytes:
+def linux_exit_list() -> list[bytes]:
+    return [mov_r32_imm32(REG.RDI, 0), mov_r32_imm32(REG.RAX, 0x3C), syscall()]
+
+def linux_exit_raw() -> bytes:
     return mov_r32_imm32(REG.RDI, 0) + mov_r32_imm32(REG.RAX, 0x3C) + syscall()
