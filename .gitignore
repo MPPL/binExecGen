@@ -4,4 +4,3 @@ main.c
 main.obj
 mtest
 *.pyc
-testing.py
