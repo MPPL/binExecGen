@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from structs.binary import Addr64, StaticBytes
+from binary.tools.convert import fit_in_align
 
 class Header:
 
@@ -21,16 +22,24 @@ class DotCode:
     max_len: int
     offset: int = 0
     vaddr: Addr64
+    align: int
 
-    def __init__(self, max_len: int, offset: int, vaddr: Addr64):
+    def __init__(self, max_len: int, align: int, offset: int = 0, vaddr: Addr64 = Addr64(StaticBytes(8))):
         self.data = bytes(0)
         self.index = []
         self.max_len = max_len
         self.offset = offset
         self.vaddr = vaddr
+        self.align = align
     
     def set_offset(self, offset: int):
         self.offset = offset
+    
+    def set_vaddr(self, vaddr: Addr64):
+        self.vaddr = vaddr
+    
+    def set_align(self, align: int):
+        self.align = align
 
     def add_entry(self, data: bytes):
         if len(data) + len(self.data) > self.max_len:
@@ -42,8 +51,8 @@ class DotCode:
         return len(self.data)
     
     def as_bytes(self) -> bytes:
-        ret: bytearray = bytearray(self.max_len)
-        ret[0:len(self.data)] = self.data
+        ret: bytearray = bytearray(fit_in_align(len(self.data), self.align))
+        ret[:len(self.data)] = self.data
         return bytes(ret)
 
 class DotData:
@@ -53,16 +62,24 @@ class DotData:
     max_len: int
     offset: int = 0
     vaddr: Addr64
+    align: int
 
-    def __init__(self, max_len: int, offset: int, vaddr: Addr64):
+    def __init__(self, max_len: int, align: int, offset: int = 0, vaddr: Addr64 = Addr64(StaticBytes(8))):
         self.data = bytes(0)
         self.index = []
         self.max_len = max_len
         self.offset = offset
         self.vaddr = vaddr
+        self.align = align
     
     def set_offset(self, offset: int):
         self.offset = offset
+    
+    def set_vaddr(self, vaddr: Addr64):
+        self.vaddr = vaddr
+    
+    def set_align(self, align: int):
+        self.align = align
     
     def add_entry(self, data: bytes):
         if len(data) + len(self.data) > self.max_len:
@@ -74,8 +91,8 @@ class DotData:
         return len(self.data)
     
     def as_bytes(self) -> bytes:
-        ret: bytearray = bytearray(self.max_len)
-        ret[0:len(self.data)] = self.data
+        ret: bytearray = bytearray(fit_in_align(len(self.data), self.align))
+        ret[:len(self.data)] = self.data
         return bytes(ret)
 
 class ExecFile:
@@ -100,6 +117,3 @@ class ExecFile:
     
     def append_data(self, data: bytes):
         self.text.add_entry(data)
-
-def nice_hex(data: bytes) -> str:
-    return f"{" ".join([ f"{hex(x).replace('0x', ''):0>2}" for x in data]) }"

@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Union
 from copy import deepcopy
 from typing_extensions import Self
+from binary.tools.convert import BTLEndian, LTBEndian, extend as bitExtend, shorten as bitShorten
 
 def __bytes_assignment(data: bytes, index: int, value: int) -> bytes:
     ret: bytearray = bytearray(data)
@@ -14,11 +15,17 @@ def reverse_endian(data: bytes) -> bytes:
 class StaticBytes:
     data: bytes
     lenght: int
+    is_little: bool
 
     def __init__(self, lenght: int, data: bytes = b'', to_little: bool = False) -> None:
+        '''
+            |data| is always assumed to be 'big' endian
+        '''
+        
+        self.is_little = to_little
         if data != b'':
             if  len(data) < lenght:
-                raise ValueError
+                raise ValueError(f"len of data -> {len(data)} | expected -> {lenght}")
             self.lenght = lenght
             self.data = bytes(bytearray(data)[-lenght:])
             if to_little:
@@ -27,39 +34,78 @@ class StaticBytes:
             self.lenght = lenght
             self.data = bytes(self.lenght)
     
-    def __call__(self, *args: Any, **kwds: Any) -> Any:
-        if not isinstance(args[0], (str, bytes, bytearray, list, tuple, StaticBytes)):
+    def __call__(self, data: Union[int, str, bytes, bytearray, list, tuple, StaticBytes]) -> Any:
+        '''
+            |args[0]| is always assumed to be 'big' endian
+        '''
+
+        if not isinstance(data, (str, bytes, bytearray, list, tuple, StaticBytes)):
             raise TypeError
-        elif isinstance(args[0], (list, tuple)) and not isinstance(args[0][0], int):
-            raise TypeError
-        elif isinstance(args[0], StaticBytes):
-            if args[0].lenght < self.lenght:
+        
+        elif isinstance(data, int):
+            self.data = data.to_bytes(self.lenght, 'little' if self.is_little else 'big')
+
+        elif isinstance(data, (list, tuple)):
+            if not isinstance(data[0], int):
+                raise TypeError
+            else:
+                self.data = data[0].to_bytes(self.lenght, 'little' if self.is_little else 'big')
+        elif isinstance(data, StaticBytes):
+            if data.lenght < self.lenght:
                 raise ValueError
-            val = args[0].data
-        elif len(args[0]) < self.lenght:
+            val = data.data
+            if data.lenght != self.lenght:
+                if data.lenght < self.lenght:
+                    val = bitExtend(val, self.lenght - data.lenght, data.is_little)
+                else:
+                    val = bitShorten(val, data.lenght - self.lenght, data.is_little)
+            if data.is_little != self.is_little:
+                if data.is_little:
+                    val = LTBEndian(val)
+                else:
+                    val = BTLEndian(val)
+            self.data = val
+        elif len(data) < self.lenght:
             raise ValueError
-        elif isinstance(args[0], str):
-            val: bytes = args[0].encode("utf-8")
+        elif isinstance(data, str):
+            val: bytes = data.encode("utf-8")
+            if len(val) > self.lenght:
+                raise ValueError
+            if self.is_little:
+                self.data = BTLEndian(val)
+            else:
+                self.data = val
         else:
-            val: bytes = bytes(args[0])
-        self.data = bytes(bytearray(val)[-self.lenght:])
+            val = bytes(data)
+            if self.is_little:
+                self.data = BTLEndian(val)
+            else:
+                self.data = val
     
     def __reversed__(self) -> StaticBytes:
         copy: StaticBytes = deepcopy(self)
-        copy.data = bytes(reversed(copy.data))
+        copy.is_little = not self.is_little
+        if self.is_little:
+            copy.data = LTBEndian(copy.data)
+        else:
+            copy.data = BTLEndian(copy.data)
         return copy
     
     def as_addr64(self) -> Addr64:
         return Addr64(self.data)
     
-    def as_int(self, is_little: bool = False) -> int:
-        return int.from_bytes(self.data, 'little' if is_little else 'big')
+    def as_int(self) -> int:
+        return int.from_bytes(self.data, 'little' if self.is_little else 'big')
 
-    def force_little(self) -> None:
-        self.data = bytes(reversed(self.data.lstrip(b'\x00'))) + bytes(self.lenght - len(self.data.lstrip(b'\x00')))
+    def convert_to_little(self) -> None:
+        if self.is_little:
+            return
+        self.data = BTLEndian(self.data)
 
-    def force_big(self) -> None:
-        self.data = bytes(self.lenght - len(self.data.rstrip(b'\x00'))) + bytes(reversed(self.data.rstrip(b'\x00')))
+    def convert_to_big(self) -> None:
+        if not self.is_little:
+            return
+        self.data = LTBEndian(self.data)
 
 class Addr64:
     addr: StaticBytes
