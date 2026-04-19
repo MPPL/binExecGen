@@ -3,6 +3,7 @@ from typing import Any, Union
 from copy import deepcopy
 from typing_extensions import Self
 from binary.tools.convert import BTLEndian, LTBEndian, extend as bitExtend, shorten as bitShorten
+from binary.tools.string import nice_hex
 
 def __bytes_assignment(data: bytes, index: int, value: int) -> bytes:
     ret: bytearray = bytearray(data)
@@ -101,11 +102,13 @@ class StaticBytes:
         if self.is_little:
             return
         self.data = BTLEndian(self.data)
+        self.is_little = True
 
     def convert_to_big(self) -> None:
         if not self.is_little:
             return
         self.data = LTBEndian(self.data)
+        self.is_little = False
 
 class Addr64:
     addr: StaticBytes
@@ -134,3 +137,13 @@ class Addr32:
             self.addr = addr
         else:
             raise TypeError("Wrong type of data provided to Addr32 constructor")
+
+@dataclass
+class Symbol:
+    add_vaddr: bool
+    data: bytes
+    offset: int
+    lenght: int
+
+    def __str__(self) -> str:
+        return f"Symbol(add_vaddr = |{self.add_vaddr}|, data = |{nice_hex(self.data)}|, offset = |{self.offset}|, lenght = |{self.lenght}|)"

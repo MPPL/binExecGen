@@ -1,4 +1,5 @@
 from enum import IntEnum
+from structs.binary import Symbol
 
 class REG(IntEnum):
     RAX = 0
@@ -49,19 +50,19 @@ class bit:
 def gen_rex(is_64: bit = bit(0), Modmrm: bit = bit(0), Sibindex: bit = bit(0), Sibbase: bit = bit(0)) -> bytes:
     return (4 * 0x10 + int(is_64) * 0x08 + int(Modmrm) * 0x04 + int(Sibindex) * 0x02 + int(Sibbase) * 0x01).to_bytes(1)
 
-def mov_r32_imm32(reg: REG, val: int) -> bytes:
-    return gen_rex(bit(1), bit(0), bit(0), bit(0)) + b'\xC7' + (192 + int(reg)).to_bytes(1) + val.to_bytes(4, 'little')
+def mov_r32_imm32(reg: REG, val: int, fix: bool = False) -> Symbol:
+    return Symbol(fix, gen_rex(bit(1), bit(0), bit(0), bit(0)) + b'\xC7' + (192 + int(reg)).to_bytes(1) + val.to_bytes(4, 'little'),3,4)
 
-def mov_r64_imm64(reg: REG, val: int) -> bytes:
+def mov_r64_imm64(reg: REG, val: int, fix: bool = False) -> Symbol:
     if int(reg) > 7:
         raise ValueError(f"reg value |{reg}| outside of range |0-7|")
-    return gen_rex(bit(1), bit(0), bit(0), bit(0)) + (184 + int(reg)).to_bytes(1) + val.to_bytes(8, 'little')
+    return Symbol(fix, gen_rex(bit(1), bit(0), bit(0), bit(0)) + (184 + int(reg)).to_bytes(1) + val.to_bytes(8, 'little'),2,8)
 
-def syscall() -> bytes:
-    return b'\x0F\x05'
+def syscall() -> Symbol:
+    return Symbol(False, b'\x0F\x05', 0,0)
 
-def linux_exit_list() -> list[bytes]:
+def linux_exit_list() -> list[Symbol]:
     return [mov_r32_imm32(REG.RDI, 0), mov_r32_imm32(REG.RAX, 0x3C), syscall()]
 
-def linux_exit_raw() -> bytes:
-    return mov_r32_imm32(REG.RDI, 0) + mov_r32_imm32(REG.RAX, 0x3C) + syscall()
+def linux_exit_raw() -> Symbol:
+    return Symbol(False, mov_r32_imm32(REG.RDI, 0).data + mov_r32_imm32(REG.RAX, 0x3C).data + syscall().data, 0,0)

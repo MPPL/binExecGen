@@ -358,7 +358,7 @@ def gen_ph_entry(type: ELF64.PH_TYPE,
                 filesize: int,
                 memsize: int,
                 alignment: int,
-                little_endianness: bool = False) -> PH_ENTRY:
+                is_little: bool = False) -> PH_ENTRY:
     ret: PH_ENTRY = PH_ENTRY()
     ret.full_fill(type,
                 flags,
@@ -368,7 +368,7 @@ def gen_ph_entry(type: ELF64.PH_TYPE,
                 StaticBytes(8,filesize.to_bytes(8)),
                 StaticBytes(8,memsize.to_bytes(8)),
                 StaticBytes(8,alignment.to_bytes(8)),
-                True)
+                is_little)
     return ret
 
 def gen_default_header(exec_size: int, rw_data_size: int) -> HeaderStructure:
@@ -434,7 +434,7 @@ def gen_test_file() -> ExecFile:
 
 def add_header_to_execfile(file: ExecFile) -> ExecFile:
 
-    header: HeaderStructure = gen_default_header(len(file.code.as_bytes()),len(file.text.as_bytes()))
+    header: HeaderStructure = gen_default_header(file.get_symbol_len(),len(file.text.as_bytes()))
 
     file.header.data = header.as_bytes()
 

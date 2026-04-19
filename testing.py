@@ -7,13 +7,13 @@ from structs.files import ExecFile, DotData, DotCode, Header
 def toh(n: int) -> str:
     return f"{hex(n).replace("0x",''):0>2}"
 
-file = ExecFile(Header(b''), DotCode(m.ELF64.STANDARD_PAGE_SIZE*16, 0), DotData(m.ELF64.STANDARD_PAGE_SIZE*16, 0))
+file = ExecFile(Header(b''), DotCode(m.ELF64.STANDARD_PAGE_SIZE*16, 0), DotData(m.ELF64.STANDARD_PAGE_SIZE*16, 0), True)
 
 print(nice_hex(file.text.vaddr.addr.data))
 
 file.append_data("Hello, World!\n".encode('ascii'))
 file.append_exec(mov_r32_imm32(REG.RDI, 1))
-file.append_exec(mov_r32_imm32(REG.RSI, file.text.vaddr.addr.as_int() + file.text.index[0]))
+file.append_exec(mov_r32_imm32(REG.RSI, file.text.vaddr.addr.as_int() + file.text.index[0], True))
 file.append_exec(mov_r32_imm32(REG.RDX, len("Hello, World!\n".encode('ascii'))))
 file.append_exec(mov_r32_imm32(REG.RAX, 1))
 file.append_exec(syscall())
@@ -22,6 +22,11 @@ for x in linux_exit_list():
     file.append_exec(x)
 
 file = m.add_header_to_execfile(file)
+
+file.resolve_symbols()
+file.apply_symbols()
+
+print(nice_hex(file.code.data, 8))
 
 a = file.as_bytes()
 

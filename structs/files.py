@@ -1,6 +1,7 @@
 from dataclasses import dataclass
-from structs.binary import Addr64, StaticBytes
+from structs.binary import Addr64, StaticBytes, Symbol
 from binary.tools.convert import fit_in_align
+from binary.tools.string import nice_hex
 
 class Header:
 
@@ -101,10 +102,16 @@ class ExecFile:
     code: DotCode
     text: DotData
 
-    def __init__(self, header: Header, code: DotCode, text: DotData) -> None:
+    symbols: list[Symbol]
+
+    is_little: bool = False
+
+    def __init__(self, header: Header, code: DotCode, text: DotData, is_little: bool = False) -> None:
         self.header = header
         self.code = code
         self.text = text
+        self.symbols = []
+        self.is_little = is_little
     
     def as_bytes(self) -> bytes:
         return self.header.as_bytes() + self.code.as_bytes() + self.text.as_bytes()
@@ -112,8 +119,29 @@ class ExecFile:
     def __len__(self) -> int:
         return len(self.header.data + self.code.data + self.text.data)
     
-    def append_exec(self, data: bytes):
-        self.code.add_entry(data)
+    def set_is_little(self, val: bool):
+        self.is_little = val 
+    
+    def append_exec(self, data: Symbol):
+        self.symbols.append(data)
     
     def append_data(self, data: bytes):
         self.text.add_entry(data)
+    
+    def get_symbol_len(self) -> int:
+        return sum([len(x.data) for x in self.symbols])
+
+    def resolve_symbols(self):
+        for y, x in enumerate(self.symbols):
+            print(x.add_vaddr)
+            if x.add_vaddr:
+                n = x.data[x.offset:x.offset+x.lenght]
+                tmp = bytearray(x.data)
+                tmp[x.offset:x.offset+x.lenght] = (self.text.vaddr.addr.as_int() + int.from_bytes(n, 'little' if self.is_little else 'big')).to_bytes(x.lenght, 'little' if self.is_little else 'big')
+                print(nice_hex(n) , "|", nice_hex(tmp[x.offset:x.offset+x.lenght]))
+                self.symbols[y].data = tmp
+
+    def apply_symbols(self):
+        print("\n".join([str(x) for x in self.symbols]))
+        for x in self.symbols:
+            self.code.add_entry(x.data)
